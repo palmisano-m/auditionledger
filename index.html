@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#1a2744" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Audition Ledger" />
+    <meta name="description" content="Track opera audition singers across every session of the year." />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="icons/icon-180.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+    <link rel="stylesheet" href="styles.css" />
+    <title>Audition Ledger</title>
+  </head>
+  <body>
+    <div class="app">
+      <header class="header">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">A</div>
+          <div class="brand-text">
+            <h1 class="brand-title">Audition Ledger</h1>
+            <p class="brand-sub">Opera audition tracking, reused all year</p>
+          </div>
+        </div>
+        <div class="header-actions">
+          <div class="view-toggle" role="group" aria-label="View">
+            <button type="button" id="view-session" aria-pressed="true">This Audition</button>
+            <button type="button" id="view-all" aria-pressed="false">All Auditions</button>
+          </div>
+          <div class="menu">
+            <button type="button" class="btn btn-secondary" id="menu-btn" aria-haspopup="true" aria-expanded="false">
+              Actions
+            </button>
+            <div class="menu-panel" id="menu-panel" role="menu">
+              <button type="button" role="menuitem" id="action-export">Export Excel</button>
+              <button type="button" role="menuitem" id="action-backup">Save to Files</button>
+              <button type="button" role="menuitem" id="action-restore">Load from Files</button>
+              <button type="button" role="menuitem" class="danger" id="action-delete-session">Delete Audition</button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <section class="panel session-bar" id="session-panel" aria-label="Audition session">
+        <div class="session-row">
+          <div class="field">
+            <label for="audition-select">Audition</label>
+            <select id="audition-select"></select>
+          </div>
+          <button type="button" class="btn btn-secondary" id="new-audition-btn">New Audition</button>
+          <button type="button" class="btn btn-ghost" id="edit-audition-btn">Edit Details</button>
+        </div>
+        <div class="session-meta" id="session-meta"></div>
+      </section>
+
+      <section class="panel toolbar" aria-label="Search and filters">
+        <div class="field search">
+          <label for="search-input">Search</label>
+          <input id="search-input" type="search" placeholder="Number, name, voice, repertoire, notes, role…" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label for="voice-filter">Voice type</label>
+          <select id="voice-filter">
+            <option value="">All voices</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="sort-by">Sort by</label>
+          <select id="sort-by">
+            <option value="number">Number</option>
+            <option value="name">Name</option>
+            <option value="voiceType">Voice type</option>
+          </select>
+        </div>
+        <button type="button" class="btn btn-primary" id="add-singer-btn">Add Singer</button>
+      </section>
+
+      <section aria-label="Singers">
+        <div class="list-header">
+          <h2 id="list-title">Singers</h2>
+          <div class="count" id="list-count"></div>
+        </div>
+        <div class="singer-list" id="singer-list"></div>
+      </section>
+    </div>
+
+    <!-- Audition dialog -->
+    <div class="dialog-backdrop" id="audition-dialog" role="dialog" aria-modal="true" aria-labelledby="audition-dialog-title">
+      <div class="dialog">
+        <h2 id="audition-dialog-title">Audition</h2>
+        <form id="audition-form">
+          <div class="form-grid">
+            <div class="field span-2">
+              <label for="audition-name">Name</label>
+              <input id="audition-name" required maxlength="120" placeholder="e.g. Spring Young Artist Auditions" />
+            </div>
+            <div class="field">
+              <label for="audition-date">Date</label>
+              <input id="audition-date" type="date" required />
+            </div>
+            <div class="field">
+              <label for="audition-location">Location</label>
+              <input id="audition-location" maxlength="120" placeholder="City or venue" />
+            </div>
+          </div>
+          <div class="dialog-actions">
+            <button type="button" class="btn btn-secondary" data-close="audition-dialog">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Singer dialog -->
+    <div class="dialog-backdrop" id="singer-dialog" role="dialog" aria-modal="true" aria-labelledby="singer-dialog-title">
+      <div class="dialog">
+        <h2 id="singer-dialog-title">Singer</h2>
+        <form id="singer-form">
+          <input type="hidden" id="singer-id" />
+          <input type="hidden" id="singer-audition-id" />
+          <div class="form-grid">
+            <div class="field">
+              <label for="singer-number">Number</label>
+              <input id="singer-number" required inputmode="numeric" maxlength="20" />
+            </div>
+            <div class="field">
+              <label for="singer-voice">Voice type</label>
+              <select id="singer-voice" required></select>
+            </div>
+            <div class="field span-2">
+              <label for="singer-name">Name <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+              <input id="singer-name" maxlength="120" placeholder="Leave blank if not tracked" />
+            </div>
+            <div class="field span-2">
+              <label for="singer-repertoire">Repertoire</label>
+              <textarea id="singer-repertoire" maxlength="2000" placeholder="What the singer performed"></textarea>
+            </div>
+            <div class="field span-2">
+              <label for="singer-notes">Notes</label>
+              <textarea id="singer-notes" maxlength="4000" placeholder="Observations from the audition"></textarea>
+            </div>
+            <div class="field span-2">
+              <label for="singer-role">Role considered</label>
+              <input id="singer-role" maxlength="200" placeholder="Role you would cast them in" />
+            </div>
+          </div>
+          <div class="dialog-actions">
+            <button type="button" class="btn btn-danger hidden" id="delete-singer-btn">Delete</button>
+            <span style="flex:1"></span>
+            <button type="button" class="btn btn-secondary" data-close="singer-dialog">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Confirm dialog -->
+    <div class="dialog-backdrop" id="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+      <div class="dialog">
+        <h2 id="confirm-title">Confirm</h2>
+        <p id="confirm-message"></p>
+        <div class="dialog-actions">
+          <button type="button" class="btn btn-secondary" id="confirm-cancel">Cancel</button>
+          <button type="button" class="btn btn-primary" id="confirm-ok">Continue</button>
+        </div>
+      </div>
+    </div>
+
+    <input type="file" id="restore-input" accept="application/json,.json" class="hidden" />
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="vendor/xlsx.full.min.js"></script>
+    <script src="export.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

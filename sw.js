@@ -1,4 +1,4 @@
-const CACHE_NAME = "audition-ledger-v4";
+const CACHE_NAME = "audition-ledger-v5";
 const ASSETS = [
   "./",
   "./index.html",

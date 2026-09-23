@@ -28,6 +28,7 @@
           <div class="view-toggle" role="group" aria-label="View">
             <button type="button" id="view-session" aria-pressed="true">This Audition</button>
             <button type="button" id="view-all" aria-pressed="false">All Auditions</button>
+            <button type="button" id="view-by-role" aria-pressed="false">By Role</button>
           </div>
           <div class="menu">
             <button type="button" class="btn btn-secondary" id="menu-btn" aria-haspopup="true" aria-expanded="false">
@@ -55,7 +56,7 @@
         <div class="session-meta" id="session-meta"></div>
       </section>
 
-      <section class="panel toolbar" aria-label="Search and filters">
+      <section class="panel toolbar" id="toolbar-panel" aria-label="Search and filters">
         <div class="field search">
           <label for="search-input">Search</label>
           <input id="search-input" type="search" placeholder="Number, name, voice, repertoire, notes, role…" autocomplete="off" />
@@ -66,14 +67,16 @@
             <option value="">All voices</option>
           </select>
         </div>
-        <div class="field">
+        <div class="field" id="sort-field">
           <label for="sort-by">Sort by</label>
           <select id="sort-by">
             <option value="number">Number</option>
             <option value="name">Name</option>
             <option value="voiceType">Voice type</option>
+            <option value="score">Score</option>
           </select>
         </div>
+        <button type="button" class="btn btn-secondary" id="import-excel-btn">Import Excel</button>
         <button type="button" class="btn btn-primary" id="add-singer-btn">Add Singer</button>
       </section>
 
@@ -103,6 +106,16 @@
             <div class="field">
               <label for="audition-location">Location</label>
               <input id="audition-location" maxlength="120" placeholder="City or venue" />
+            </div>
+            <div class="field span-2">
+              <label>Roles up for consideration</label>
+              <div class="roles-editor">
+                <div class="roles-list" id="roles-list"></div>
+                <div class="roles-add-row">
+                  <input id="role-add-input" type="text" maxlength="120" placeholder="Add a role, e.g. Violetta" autocomplete="off" />
+                  <button type="button" class="btn btn-secondary" id="role-add-btn">Add</button>
+                </div>
+              </div>
             </div>
           </div>
           <div class="dialog-actions">
@@ -141,9 +154,25 @@
               <label for="singer-notes">Notes</label>
               <textarea id="singer-notes" maxlength="4000" placeholder="Observations from the audition"></textarea>
             </div>
-            <div class="field span-2">
+            <div class="field">
               <label for="singer-role">Role considered</label>
-              <input id="singer-role" maxlength="200" placeholder="Role you would cast them in" />
+              <select id="singer-role"></select>
+            </div>
+            <div class="field">
+              <label for="singer-score">Score (1–10)</label>
+              <select id="singer-score">
+                <option value="">—</option>
+                <option value="10">10</option>
+                <option value="9">9</option>
+                <option value="8">8</option>
+                <option value="7">7</option>
+                <option value="6">6</option>
+                <option value="5">5</option>
+                <option value="4">4</option>
+                <option value="3">3</option>
+                <option value="2">2</option>
+                <option value="1">1</option>
+              </select>
             </div>
           </div>
           <div class="dialog-actions">
@@ -169,6 +198,7 @@
     </div>
 
     <input type="file" id="restore-input" accept="application/json,.json" class="hidden" />
+    <input type="file" id="import-excel-input" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" class="hidden" />
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
     <script src="vendor/xlsx.full.min.js"></script>

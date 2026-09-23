@@ -461,11 +461,124 @@ button {
   text-overflow: ellipsis;
 }
 
+.singer-aside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 0;
+}
+
 .singer-voice {
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--accent);
   white-space: nowrap;
+}
+
+.singer-score {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+/* Roles editor */
+.roles-editor {
+  display: grid;
+  gap: 10px;
+}
+
+.roles-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 44px;
+}
+
+.roles-empty {
+  color: var(--muted);
+  font-size: 0.95rem;
+  padding: 8px 2px;
+}
+
+.role-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: var(--touch);
+  padding: 4px 8px 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fffdf8;
+}
+
+.role-name {
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.role-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.roles-add-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.roles-add-row input {
+  flex: 1;
+  min-height: var(--touch);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fffdf8;
+  padding: 10px 12px;
+}
+
+/* By Role tabulation */
+.role-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.role-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 0 2px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 6px;
+}
+
+.role-group-header h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.role-group-header span {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.role-group-empty {
+  color: var(--muted);
+  padding: 12px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: rgba(255, 253, 248, 0.45);
 }
 
 .singer-detail {
@@ -601,8 +714,12 @@ button {
     grid-template-columns: 48px 1fr;
   }
 
-  .singer-voice {
+  .singer-aside {
     grid-column: 2;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
   }
 }
 

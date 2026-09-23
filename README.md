@@ -4,11 +4,12 @@ A self-contained Progressive Web App for tracking opera audition singers across 
 
 ## Features
 
-- **Audition sessions** — name, date, and location; reuse the same app all year
-- **Singer records** — number, optional name, voice type, repertoire, notes, role considered
-- **This Audition / All Auditions** views
-- **Search** across every field; filter by voice type; sort by number, name, or voice type
-- **Excel export** — one audition, or all auditions (combined sheet + one sheet per audition)
+- **Audition sessions** — name, date, location, and a per-audition roles list
+- **Singer records** — number, optional name, voice type, repertoire, notes, role (dropdown), score (1–10)
+- **This Audition / All Auditions / By Role** views — By Role groups singers and sorts by score
+- **Search** across every field; filter by voice type; sort by number, name, voice type, or score
+- **Excel import** — load Name / Voice Type / Repertoire into the active audition (numbers auto-assigned)
+- **Excel export** — one audition, or all auditions (combined sheet + one sheet per audition), including score
 - **Auto-save** to browser storage on every change
 - **Backup / restore** JSON files to the iPad Files app or iCloud Drive
 - **Installable on iPad** — Add to Home Screen, opens full-screen offline after the first visit

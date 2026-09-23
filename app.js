@@ -2,6 +2,7 @@
   "use strict";
 
   const STORAGE_KEY = "audition-ledger-v1";
+  const STORE_VERSION = 2;
   const VOICE_TYPES = window.AuditionExport?.VOICE_TYPES || [
     "Soprano",
     "Mezzo-Soprano",
@@ -13,13 +14,16 @@
 
   /** @type {{ version: number, auditions: Array, activeAuditionId: string|null }} */
   let state = {
-    version: 1,
+    version: STORE_VERSION,
     auditions: [],
     activeAuditionId: null,
   };
 
+  /** Roles being edited in the audition dialog (not yet saved). */
+  let draftRoles = [];
+
   let ui = {
-    view: "session", // session | all
+    view: "session", // session | all | byRole
     search: "",
     voiceFilter: "",
     sortBy: "number",
@@ -31,6 +35,7 @@
   const el = {
     viewSession: document.getElementById("view-session"),
     viewAll: document.getElementById("view-all"),
+    viewByRole: document.getElementById("view-by-role"),
     menuBtn: document.getElementById("menu-btn"),
     menuPanel: document.getElementById("menu-panel"),
     actionExport: document.getElementById("action-export"),
@@ -38,6 +43,7 @@
     actionRestore: document.getElementById("action-restore"),
     actionDeleteSession: document.getElementById("action-delete-session"),
     sessionPanel: document.getElementById("session-panel"),
+    toolbarPanel: document.getElementById("toolbar-panel"),
     auditionSelect: document.getElementById("audition-select"),
     newAuditionBtn: document.getElementById("new-audition-btn"),
     editAuditionBtn: document.getElementById("edit-audition-btn"),
@@ -45,6 +51,8 @@
     searchInput: document.getElementById("search-input"),
     voiceFilter: document.getElementById("voice-filter"),
     sortBy: document.getElementById("sort-by"),
+    sortField: document.getElementById("sort-field"),
+    importExcelBtn: document.getElementById("import-excel-btn"),
     addSingerBtn: document.getElementById("add-singer-btn"),
     listTitle: document.getElementById("list-title"),
     listCount: document.getElementById("list-count"),
@@ -55,6 +63,9 @@
     auditionName: document.getElementById("audition-name"),
     auditionDate: document.getElementById("audition-date"),
     auditionLocation: document.getElementById("audition-location"),
+    rolesList: document.getElementById("roles-list"),
+    roleAddInput: document.getElementById("role-add-input"),
+    roleAddBtn: document.getElementById("role-add-btn"),
     singerDialog: document.getElementById("singer-dialog"),
     singerForm: document.getElementById("singer-form"),
     singerDialogTitle: document.getElementById("singer-dialog-title"),
@@ -66,6 +77,7 @@
     singerRepertoire: document.getElementById("singer-repertoire"),
     singerNotes: document.getElementById("singer-notes"),
     singerRole: document.getElementById("singer-role"),
+    singerScore: document.getElementById("singer-score"),
     deleteSingerBtn: document.getElementById("delete-singer-btn"),
     confirmDialog: document.getElementById("confirm-dialog"),
     confirmTitle: document.getElementById("confirm-title"),
@@ -73,6 +85,7 @@
     confirmCancel: document.getElementById("confirm-cancel"),
     confirmOk: document.getElementById("confirm-ok"),
     restoreInput: document.getElementById("restore-input"),
+    importExcelInput: document.getElementById("import-excel-input"),
     toast: document.getElementById("toast"),
   };
 
@@ -92,7 +105,27 @@
     el.toast.classList.toggle("error", isError);
     el.toast.classList.add("show");
     clearTimeout(showToast._t);
-    showToast._t = setTimeout(() => el.toast.classList.remove("show"), 2600);
+    showToast._t = setTimeout(() => el.toast.classList.remove("show"), 3200);
+  }
+
+  function normalizeScore(value) {
+    if (value == null || value === "") return null;
+    const n = Number(value);
+    if (!Number.isInteger(n) || n < 1 || n > 10) return null;
+    return n;
+  }
+
+  function normalizeRoles(rawRoles) {
+    if (!Array.isArray(rawRoles)) return [];
+    const seen = new Set();
+    const roles = [];
+    for (const role of rawRoles) {
+      const text = String(role || "").trim();
+      if (!text || seen.has(text.toLowerCase())) continue;
+      seen.add(text.toLowerCase());
+      roles.push(text);
+    }
+    return roles;
   }
 
   function persist() {
@@ -100,7 +133,7 @@
       localStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({
-          version: state.version,
+          version: STORE_VERSION,
           auditions: state.auditions,
           activeAuditionId: state.activeAuditionId,
         })
@@ -111,26 +144,29 @@
     }
   }
 
+  function normalizeSinger(s, j, i) {
+    if (!s || typeof s !== "object") throw new Error(`Invalid singer at audition ${i}, index ${j}.`);
+    return {
+      id: String(s.id || uid()),
+      number: s.number != null ? String(s.number) : "",
+      name: s.name != null ? String(s.name) : "",
+      voiceType: VOICE_TYPES.includes(s.voiceType) ? s.voiceType : "Soprano",
+      repertoire: s.repertoire != null ? String(s.repertoire) : "",
+      notes: s.notes != null ? String(s.notes) : "",
+      roleConsidered: s.roleConsidered != null ? String(s.roleConsidered) : "",
+      score: normalizeScore(s.score),
+    };
+  }
+
   function normalizeStore(raw) {
     if (!raw || typeof raw !== "object") throw new Error("Backup is not a valid object.");
-    if (raw.version !== 1) throw new Error("Unsupported backup version.");
+    if (raw.version !== 1 && raw.version !== 2) throw new Error("Unsupported backup version.");
     if (!Array.isArray(raw.auditions)) throw new Error("Backup is missing auditions.");
 
     const auditions = raw.auditions.map((a, i) => {
       if (!a || typeof a !== "object") throw new Error(`Invalid audition at index ${i}.`);
       const singers = Array.isArray(a.singers)
-        ? a.singers.map((s, j) => {
-            if (!s || typeof s !== "object") throw new Error(`Invalid singer at audition ${i}, index ${j}.`);
-            return {
-              id: String(s.id || uid()),
-              number: s.number != null ? String(s.number) : "",
-              name: s.name != null ? String(s.name) : "",
-              voiceType: VOICE_TYPES.includes(s.voiceType) ? s.voiceType : "Soprano",
-              repertoire: s.repertoire != null ? String(s.repertoire) : "",
-              notes: s.notes != null ? String(s.notes) : "",
-              roleConsidered: s.roleConsidered != null ? String(s.roleConsidered) : "",
-            };
-          })
+        ? a.singers.map((s, j) => normalizeSinger(s, j, i))
         : [];
       return {
         id: String(a.id || uid()),
@@ -138,6 +174,7 @@
         date: String(a.date || todayISO()),
         location: a.location != null ? String(a.location) : "",
         createdAt: String(a.createdAt || new Date().toISOString()),
+        roles: normalizeRoles(a.roles),
         singers,
       };
     });
@@ -147,20 +184,21 @@
       activeAuditionId = auditions[0]?.id || null;
     }
 
-    return { version: 1, auditions, activeAuditionId };
+    return { version: STORE_VERSION, auditions, activeAuditionId };
   }
 
   function load() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) {
-        state = { version: 1, auditions: [], activeAuditionId: null };
+        state = { version: STORE_VERSION, auditions: [], activeAuditionId: null };
         return;
       }
       state = normalizeStore(JSON.parse(raw));
+      if (state.version === STORE_VERSION) persist();
     } catch (err) {
       console.error(err);
-      state = { version: 1, auditions: [], activeAuditionId: null };
+      state = { version: STORE_VERSION, auditions: [], activeAuditionId: null };
       showToast("Saved data looked invalid — starting fresh.", true);
     }
   }
@@ -179,6 +217,15 @@
       persist();
     }
     return getActiveAudition();
+  }
+
+  function nextAuditionNumber(audition) {
+    let max = 0;
+    for (const singer of audition.singers || []) {
+      const n = parseInt(String(singer.number).replace(/[^\d]/g, ""), 10);
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+    return String(max + 1);
   }
 
   function confirmDialog(title, message, okLabel = "Continue") {
@@ -227,6 +274,10 @@
     }
   }
 
+  function formatScore(score) {
+    return score == null ? "—" : String(score);
+  }
+
   function compareValues(a, b, sortBy) {
     if (sortBy === "number") {
       const na = parseFloat(String(a.number).replace(/[^\d.-]/g, ""));
@@ -244,10 +295,19 @@
       if (ia !== ib) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
       return compareValues(a, b, "number");
     }
-    // name
+    if (sortBy === "score") {
+      const sa = a.score == null ? -1 : a.score;
+      const sb = b.score == null ? -1 : b.score;
+      if (sa !== sb) return sb - sa;
+      return compareValues(a, b, "number");
+    }
     const nameCmp = String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" });
     if (nameCmp !== 0) return nameCmp;
     return compareValues(a, b, "number");
+  }
+
+  function compareByScoreDesc(a, b) {
+    return compareValues(a, b, "score");
   }
 
   function matchesSearch(singer, audition, query) {
@@ -259,6 +319,7 @@
       singer.repertoire,
       singer.notes,
       singer.roleConsidered,
+      singer.score == null ? "" : String(singer.score),
       audition?.name,
       audition?.date,
       audition?.location,
@@ -301,8 +362,58 @@
     el.voiceFilter.innerHTML = `<option value="">All voices</option>${options}`;
   }
 
+  function fillRoleSelect(audition, selectedRole) {
+    const roles = audition?.roles || [];
+    const options = [`<option value="">—</option>`];
+    for (const role of roles) {
+      options.push(`<option value="${escapeHtml(role)}">${escapeHtml(role)}</option>`);
+    }
+    if (selectedRole && !roles.includes(selectedRole)) {
+      options.push(
+        `<option value="${escapeHtml(selectedRole)}">${escapeHtml(selectedRole)} (not in list)</option>`
+      );
+    }
+    el.singerRole.innerHTML = options.join("");
+    el.singerRole.value = selectedRole || "";
+  }
+
+  function renderRolesEditor() {
+    if (!draftRoles.length) {
+      el.rolesList.innerHTML = `<div class="roles-empty">No roles yet. Add the cast list for this audition.</div>`;
+      return;
+    }
+    el.rolesList.innerHTML = draftRoles
+      .map(
+        (role, index) => `
+      <div class="role-row" data-index="${index}">
+        <span class="role-name">${escapeHtml(role)}</span>
+        <div class="role-actions">
+          <button type="button" class="btn btn-ghost btn-icon" data-role-action="up" aria-label="Move up" ${index === 0 ? "disabled" : ""}>↑</button>
+          <button type="button" class="btn btn-ghost btn-icon" data-role-action="down" aria-label="Move down" ${index === draftRoles.length - 1 ? "disabled" : ""}>↓</button>
+          <button type="button" class="btn btn-ghost btn-icon" data-role-action="remove" aria-label="Remove">×</button>
+        </div>
+      </div>`
+      )
+      .join("");
+  }
+
+  function addDraftRole() {
+    const text = el.roleAddInput.value.trim();
+    if (!text) return;
+    if (draftRoles.some((r) => r.toLowerCase() === text.toLowerCase())) {
+      showToast("That role is already on the list.", true);
+      return;
+    }
+    draftRoles.push(text);
+    el.roleAddInput.value = "";
+    renderRolesEditor();
+    el.roleAddInput.focus();
+  }
+
   function renderSessionSelect() {
-    const auditions = [...state.auditions].sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(a.name).localeCompare(String(b.name)));
+    const auditions = [...state.auditions].sort(
+      (a, b) => String(b.date).localeCompare(String(a.date)) || String(a.name).localeCompare(String(b.name))
+    );
     if (!auditions.length) {
       el.auditionSelect.innerHTML = `<option value="">No auditions yet</option>`;
       el.auditionSelect.disabled = true;
@@ -322,11 +433,13 @@
 
     const active = getActiveAudition();
     if (active) {
+      const roleCount = (active.roles || []).length;
       el.sessionMeta.innerHTML = `
         <span><strong>${escapeHtml(active.name)}</strong></span>
         <span>${escapeHtml(formatDate(active.date))}</span>
         <span>${escapeHtml(active.location || "No location")}</span>
         <span>${active.singers.length} singer${active.singers.length === 1 ? "" : "s"}</span>
+        <span>${roleCount} role${roleCount === 1 ? "" : "s"}</span>
       `;
     }
   }
@@ -339,7 +452,53 @@
       .replace(/"/g, "&quot;");
   }
 
+  function singerCardHtml(singer, audition, { showAudition = false } = {}) {
+    const open = ui.openSingerId === singer.id;
+    const name = singer.name?.trim() || "Unnamed";
+    const metaBits = [];
+    if (showAudition) metaBits.push(audition.name);
+    if (singer.roleConsidered) metaBits.push(singer.roleConsidered);
+    else if (singer.repertoire) metaBits.push(singer.repertoire);
+    const meta = metaBits.join(" · ");
+    const scoreLabel = singer.score == null ? "" : `Score ${singer.score}`;
+    return `
+      <article class="singer-row ${open ? "open" : ""}" data-singer-id="${singer.id}" data-audition-id="${audition.id}">
+        <button type="button" class="singer-summary" data-action="toggle">
+          <div class="singer-num">${escapeHtml(singer.number || "—")}</div>
+          <div class="singer-main">
+            <div class="singer-name">${escapeHtml(name)}</div>
+            <div class="singer-meta">${escapeHtml(meta)}</div>
+          </div>
+          <div class="singer-aside">
+            <div class="singer-voice">${escapeHtml(singer.voiceType || "")}</div>
+            ${scoreLabel ? `<div class="singer-score">${escapeHtml(scoreLabel)}</div>` : ""}
+          </div>
+        </button>
+        <div class="singer-detail">
+          <div class="form-grid">
+            <div class="field"><label>Number</label><div>${escapeHtml(singer.number || "—")}</div></div>
+            <div class="field"><label>Voice type</label><div>${escapeHtml(singer.voiceType || "—")}</div></div>
+            <div class="field"><label>Score</label><div>${escapeHtml(formatScore(singer.score))}</div></div>
+            <div class="field"><label>Role considered</label><div>${escapeHtml(singer.roleConsidered || "—")}</div></div>
+            <div class="field span-2"><label>Name</label><div>${escapeHtml(singer.name || "—")}</div></div>
+            <div class="field span-2"><label>Repertoire</label><div>${escapeHtml(singer.repertoire || "—")}</div></div>
+            <div class="field span-2"><label>Notes</label><div>${escapeHtml(singer.notes || "—")}</div></div>
+            ${showAudition ? `<div class="field span-2"><label>Audition</label><div>${escapeHtml(window.AuditionExport.auditionLabel(audition))}</div></div>` : ""}
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn btn-secondary" data-action="edit">Edit</button>
+            <button type="button" class="btn btn-danger" data-action="delete">Delete</button>
+          </div>
+        </div>
+      </article>`;
+  }
+
   function renderList() {
+    if (ui.view === "byRole") {
+      renderByRole();
+      return;
+    }
+
     const rows = getVisibleRows();
     const totalInView =
       ui.view === "all"
@@ -351,9 +510,6 @@
       rows.length === totalInView
         ? `${rows.length} shown`
         : `${rows.length} of ${totalInView} shown`;
-
-    el.sessionPanel.classList.toggle("hidden", ui.view === "all");
-    el.actionDeleteSession.classList.toggle("hidden", ui.view === "all" || !getActiveAudition());
 
     if (!state.auditions.length) {
       el.singerList.innerHTML = `
@@ -368,53 +524,113 @@
       el.singerList.innerHTML = `
         <div class="empty">
           <strong>No singers match</strong>
-          ${totalInView ? "Try clearing search or filters." : "Tap Add Singer to log the first entry."}
+          ${totalInView ? "Try clearing search or filters." : "Tap Add Singer or Import Excel to log entries."}
         </div>`;
       return;
     }
 
     el.singerList.innerHTML = rows
-      .map(({ singer, audition }) => {
-        const open = ui.openSingerId === singer.id;
-        const name = singer.name?.trim() || "Unnamed";
-        const metaBits = [];
-        if (ui.view === "all") metaBits.push(audition.name);
-        if (singer.repertoire) metaBits.push(singer.repertoire);
-        else if (singer.roleConsidered) metaBits.push(singer.roleConsidered);
-        const meta = metaBits.join(" · ");
-        return `
-          <article class="singer-row ${open ? "open" : ""}" data-singer-id="${singer.id}" data-audition-id="${audition.id}">
-            <button type="button" class="singer-summary" data-action="toggle">
-              <div class="singer-num">${escapeHtml(singer.number || "—")}</div>
-              <div class="singer-main">
-                <div class="singer-name">${escapeHtml(name)}</div>
-                <div class="singer-meta">${escapeHtml(meta)}</div>
-              </div>
-              <div class="singer-voice">${escapeHtml(singer.voiceType || "")}</div>
-            </button>
-            <div class="singer-detail">
-              <div class="form-grid">
-                <div class="field"><label>Number</label><div>${escapeHtml(singer.number || "—")}</div></div>
-                <div class="field"><label>Voice type</label><div>${escapeHtml(singer.voiceType || "—")}</div></div>
-                <div class="field span-2"><label>Name</label><div>${escapeHtml(singer.name || "—")}</div></div>
-                <div class="field span-2"><label>Repertoire</label><div>${escapeHtml(singer.repertoire || "—")}</div></div>
-                <div class="field span-2"><label>Notes</label><div>${escapeHtml(singer.notes || "—")}</div></div>
-                <div class="field span-2"><label>Role considered</label><div>${escapeHtml(singer.roleConsidered || "—")}</div></div>
-                ${ui.view === "all" ? `<div class="field span-2"><label>Audition</label><div>${escapeHtml(window.AuditionExport.auditionLabel(audition))}</div></div>` : ""}
-              </div>
-              <div class="form-actions">
-                <button type="button" class="btn btn-secondary" data-action="edit">Edit</button>
-                <button type="button" class="btn btn-danger" data-action="delete">Delete</button>
-              </div>
-            </div>
-          </article>`;
-      })
+      .map(({ singer, audition }) => singerCardHtml(singer, audition, { showAudition: ui.view === "all" }))
       .join("");
+  }
+
+  function renderByRole() {
+    const audition = ensureActiveAudition();
+    el.listTitle.textContent = "By role";
+
+    if (!audition) {
+      el.listCount.textContent = "";
+      el.singerList.innerHTML = `
+        <div class="empty">
+          <strong>No auditions yet</strong>
+          Create an audition and add roles to tabulate scores.
+        </div>`;
+      return;
+    }
+
+    const query = ui.search.trim().toLowerCase();
+    let singers = audition.singers.filter((singer) => {
+      if (ui.voiceFilter && singer.voiceType !== ui.voiceFilter) return false;
+      return matchesSearch(singer, audition, query);
+    });
+
+    const roleOrder = [...(audition.roles || [])];
+    const groups = new Map();
+    for (const role of roleOrder) groups.set(role, []);
+    groups.set("", []);
+
+    for (const singer of singers) {
+      const role = singer.roleConsidered || "";
+      if (!groups.has(role)) groups.set(role, []);
+      groups.get(role).push(singer);
+    }
+
+    for (const list of groups.values()) {
+      list.sort(compareByScoreDesc);
+    }
+
+    const sections = [];
+    const orderedKeys = [
+      ...roleOrder,
+      ...[...groups.keys()].filter((k) => k && !roleOrder.includes(k)),
+      "",
+    ];
+
+    let shown = 0;
+    for (const role of orderedKeys) {
+      const list = groups.get(role) || [];
+      if (!list.length && role === "" && roleOrder.length) continue;
+      if (!list.length && role !== "" && !roleOrder.includes(role)) continue;
+      shown += list.length;
+      const title = role || "Unassigned";
+      sections.push(`
+        <section class="role-group">
+          <div class="role-group-header">
+            <h3>${escapeHtml(title)}</h3>
+            <span>${list.length} singer${list.length === 1 ? "" : "s"}</span>
+          </div>
+          ${
+            list.length
+              ? list.map((singer) => singerCardHtml(singer, audition)).join("")
+              : `<div class="role-group-empty">No singers assigned yet.</div>`
+          }
+        </section>`);
+    }
+
+    el.listCount.textContent = `${shown} shown`;
+
+    if (!roleOrder.length && !audition.singers.length) {
+      el.singerList.innerHTML = `
+        <div class="empty">
+          <strong>No roles or singers yet</strong>
+          Edit audition details to add roles, then score singers for each role.
+        </div>`;
+      return;
+    }
+
+    if (!sections.length || (shown === 0 && query)) {
+      el.singerList.innerHTML = `
+        <div class="empty">
+          <strong>No singers match</strong>
+          Try clearing search or filters.
+        </div>`;
+      return;
+    }
+
+    el.singerList.innerHTML = sections.join("");
   }
 
   function render() {
     el.viewSession.setAttribute("aria-pressed", ui.view === "session" ? "true" : "false");
     el.viewAll.setAttribute("aria-pressed", ui.view === "all" ? "true" : "false");
+    el.viewByRole.setAttribute("aria-pressed", ui.view === "byRole" ? "true" : "false");
+
+    el.sessionPanel.classList.toggle("hidden", ui.view === "all");
+    el.sortField.classList.toggle("hidden", ui.view === "byRole");
+    el.importExcelBtn.classList.toggle("hidden", ui.view !== "session");
+    el.addSingerBtn.classList.toggle("hidden", ui.view === "byRole");
+    el.actionDeleteSession.classList.toggle("hidden", ui.view === "all" || !getActiveAudition());
+
     renderSessionSelect();
     renderList();
   }
@@ -425,19 +641,24 @@
     el.auditionName.value = audition?.name || "";
     el.auditionDate.value = audition?.date || todayISO();
     el.auditionLocation.value = audition?.location || "";
+    draftRoles = audition ? [...(audition.roles || [])] : [];
+    el.roleAddInput.value = "";
+    renderRolesEditor();
     openDialog(el.auditionDialog);
   }
 
   function openSingerDialog(auditionId, singer = null) {
+    const audition = state.auditions.find((a) => a.id === auditionId);
     el.singerDialogTitle.textContent = singer ? "Edit Singer" : "Add Singer";
     el.singerId.value = singer?.id || "";
     el.singerAuditionId.value = auditionId;
-    el.singerNumber.value = singer?.number || "";
+    el.singerNumber.value = singer?.number || (audition ? nextAuditionNumber(audition) : "");
     el.singerVoice.value = singer?.voiceType || VOICE_TYPES[0];
     el.singerName.value = singer?.name || "";
     el.singerRepertoire.value = singer?.repertoire || "";
     el.singerNotes.value = singer?.notes || "";
-    el.singerRole.value = singer?.roleConsidered || "";
+    fillRoleSelect(audition, singer?.roleConsidered || "");
+    el.singerScore.value = singer?.score == null ? "" : String(singer.score);
     el.deleteSingerBtn.classList.toggle("hidden", !singer);
     openDialog(el.singerDialog);
   }
@@ -447,6 +668,17 @@
     if (!audition) return { audition: null, singer: null, index: -1 };
     const index = audition.singers.findIndex((s) => s.id === singerId);
     return { audition, singer: index >= 0 ? audition.singers[index] : null, index };
+  }
+
+  function applyRolesToAudition(audition, roles) {
+    const previous = new Set(audition.roles || []);
+    audition.roles = normalizeRoles(roles);
+    const next = new Set(audition.roles);
+    for (const singer of audition.singers) {
+      if (singer.roleConsidered && previous.has(singer.roleConsidered) && !next.has(singer.roleConsidered)) {
+        singer.roleConsidered = "";
+      }
+    }
   }
 
   async function deleteSinger(auditionId, singerId) {
@@ -483,7 +715,7 @@
 
   function backupToFile() {
     const payload = {
-      version: 1,
+      version: STORE_VERSION,
       auditions: state.auditions,
       activeAuditionId: state.activeAuditionId,
       exportedAt: new Date().toISOString(),
@@ -558,6 +790,62 @@
     }
   }
 
+  async function importExcelFile(file) {
+    const active = ensureActiveAudition();
+    if (!active) {
+      openAuditionDialog(null);
+      showToast("Create an audition first, then import.", true);
+      return;
+    }
+
+    let parsed;
+    try {
+      const buffer = await file.arrayBuffer();
+      parsed = window.AuditionExport.parseExcelRoster(buffer);
+    } catch (err) {
+      console.error(err);
+      showToast(err.message || "Could not read that Excel file.", true);
+      return;
+    }
+
+    if (!parsed.rows.length) {
+      showToast(
+        parsed.skipped
+          ? `No singers imported (${parsed.skipped} skipped — check Voice Type).`
+          : "No singer rows found in that file.",
+        true
+      );
+      return;
+    }
+
+    let nextNum = parseInt(nextAuditionNumber(active), 10) || 1;
+    for (const row of parsed.rows) {
+      let number = row.number;
+      if (!number) {
+        number = String(nextNum);
+        nextNum += 1;
+      } else {
+        const n = parseInt(String(number).replace(/[^\d]/g, ""), 10);
+        if (Number.isFinite(n) && n >= nextNum) nextNum = n + 1;
+      }
+      active.singers.push({
+        id: uid(),
+        number: String(number),
+        name: row.name,
+        voiceType: row.voiceType,
+        repertoire: row.repertoire,
+        notes: "",
+        roleConsidered: "",
+        score: null,
+      });
+    }
+
+    persist();
+    render();
+    const skipNote = parsed.skipped ? ` (${parsed.skipped} skipped)` : "";
+    showToast(`Imported ${parsed.rows.length} singer${parsed.rows.length === 1 ? "" : "s"}${skipNote}.`);
+  }
+
   function bindEvents() {
     el.viewSession.addEventListener("click", () => {
       ui.view = "session";
@@ -565,6 +853,11 @@
     });
     el.viewAll.addEventListener("click", () => {
       ui.view = "all";
+      closeMenu();
+      render();
+    });
+    el.viewByRole.addEventListener("click", () => {
+      ui.view = "byRole";
       closeMenu();
       render();
     });
@@ -602,6 +895,21 @@
       if (file) await restoreFromFile(file);
     });
 
+    el.importExcelBtn.addEventListener("click", () => {
+      const active = ensureActiveAudition();
+      if (!active) {
+        openAuditionDialog(null);
+        showToast("Create an audition first, then import.", true);
+        return;
+      }
+      el.importExcelInput.click();
+    });
+    el.importExcelInput.addEventListener("change", async () => {
+      const file = el.importExcelInput.files?.[0];
+      el.importExcelInput.value = "";
+      if (file) await importExcelFile(file);
+    });
+
     el.auditionSelect.addEventListener("change", () => {
       state.activeAuditionId = el.auditionSelect.value || null;
       persist();
@@ -611,6 +919,30 @@
     el.editAuditionBtn.addEventListener("click", () => {
       const active = getActiveAudition();
       if (active) openAuditionDialog(active);
+    });
+
+    el.roleAddBtn.addEventListener("click", () => addDraftRole());
+    el.roleAddInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        addDraftRole();
+      }
+    });
+    el.rolesList.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-role-action]");
+      if (!btn) return;
+      const row = btn.closest(".role-row");
+      if (!row) return;
+      const index = Number(row.dataset.index);
+      const action = btn.dataset.roleAction;
+      if (action === "remove") {
+        draftRoles.splice(index, 1);
+      } else if (action === "up" && index > 0) {
+        [draftRoles[index - 1], draftRoles[index]] = [draftRoles[index], draftRoles[index - 1]];
+      } else if (action === "down" && index < draftRoles.length - 1) {
+        [draftRoles[index + 1], draftRoles[index]] = [draftRoles[index], draftRoles[index + 1]];
+      }
+      renderRolesEditor();
     });
 
     el.searchInput.addEventListener("input", () => {
@@ -649,6 +981,7 @@
           audition.name = name;
           audition.date = date;
           audition.location = location;
+          applyRolesToAudition(audition, draftRoles);
         }
       } else {
         const audition = {
@@ -657,6 +990,7 @@
           date,
           location,
           createdAt: new Date().toISOString(),
+          roles: normalizeRoles(draftRoles),
           singers: [],
         };
         state.auditions.push(audition);
@@ -681,7 +1015,8 @@
         voiceType: el.singerVoice.value,
         repertoire: el.singerRepertoire.value.trim(),
         notes: el.singerNotes.value.trim(),
-        roleConsidered: el.singerRole.value.trim(),
+        roleConsidered: el.singerRole.value,
+        score: normalizeScore(el.singerScore.value),
       };
       if (!payload.number) {
         showToast("Number is required.", true);

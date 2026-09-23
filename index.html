@@ -35,6 +35,7 @@
               Actions
             </button>
             <div class="menu-panel" id="menu-panel" role="menu">
+              <button type="button" role="menuitem" id="action-manage-groups">Manage Groups</button>
               <button type="button" role="menuitem" id="action-export">Export Excel</button>
               <button type="button" role="menuitem" id="action-backup">Save to Files</button>
               <button type="button" role="menuitem" id="action-restore">Load from Files</button>
@@ -43,6 +44,17 @@
           </div>
         </div>
       </header>
+
+      <section class="panel group-bar" id="group-panel" aria-label="Audition group">
+        <div class="session-row">
+          <div class="field">
+            <label for="group-filter">Audition group</label>
+            <select id="group-filter"></select>
+          </div>
+          <button type="button" class="btn btn-ghost" id="manage-groups-btn">Manage Groups</button>
+        </div>
+        <div class="session-meta" id="group-meta"></div>
+      </section>
 
       <section class="panel session-bar" id="session-panel" aria-label="Audition session">
         <div class="session-row">
@@ -106,6 +118,10 @@
             <div class="field">
               <label for="audition-location">Location</label>
               <input id="audition-location" maxlength="120" placeholder="City or venue" />
+            </div>
+            <div class="field span-2">
+              <label for="audition-group">Audition group</label>
+              <select id="audition-group"></select>
             </div>
             <div class="field span-2">
               <label>Roles up for consideration</label>
@@ -182,6 +198,24 @@
             <button type="submit" class="btn btn-primary">Save</button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- Groups dialog -->
+    <div class="dialog-backdrop" id="groups-dialog" role="dialog" aria-modal="true" aria-labelledby="groups-dialog-title">
+      <div class="dialog">
+        <h2 id="groups-dialog-title">Audition Groups</h2>
+        <p class="dialog-lead">Organize related audition dates so you can search within one group at a time.</p>
+        <div class="groups-editor">
+          <div class="groups-list" id="groups-list"></div>
+          <div class="roles-add-row">
+            <input id="group-add-input" type="text" maxlength="120" placeholder="e.g. Fall 2026 — Spring Operas" autocomplete="off" />
+            <button type="button" class="btn btn-secondary" id="group-add-btn">Add</button>
+          </div>
+        </div>
+        <div class="dialog-actions">
+          <button type="button" class="btn btn-primary" data-close="groups-dialog">Done</button>
+        </div>
       </div>
     </div>
 

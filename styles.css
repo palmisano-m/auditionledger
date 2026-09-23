@@ -299,9 +299,32 @@ button {
   backdrop-filter: blur(6px);
 }
 
-.session-bar {
+.group-bar {
   display: grid;
   gap: 12px;
+}
+
+.group-count {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.dialog-lead {
+  margin: 0 0 14px;
+  color: var(--muted);
+}
+
+.groups-editor {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.groups-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 44px;
 }
 
 .session-row {

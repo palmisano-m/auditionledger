@@ -4,7 +4,8 @@ A self-contained Progressive Web App for tracking opera audition singers across 
 
 ## Features
 
-- **Audition sessions** — name, date, location, and a per-audition roles list
+- **Audition sessions** — name, date, location, group assignment, and a per-audition roles list
+- **Audition Groups** — organize related audition dates; filter/search within one group or across all
 - **Singer records** — number, optional name, voice type, repertoire, notes, role (dropdown), score (1–10)
 - **This Audition / All Auditions / By Role** views — By Role groups singers and sorts by score
 - **Search** across every field; filter by voice type; sort by number, name, voice type, or score

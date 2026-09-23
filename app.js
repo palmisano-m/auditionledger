@@ -2,7 +2,7 @@
   "use strict";
 
   const STORAGE_KEY = "audition-ledger-v1";
-  const STORE_VERSION = 2;
+  const STORE_VERSION = 3;
   const VOICE_TYPES = window.AuditionExport?.VOICE_TYPES || [
     "Soprano",
     "Mezzo-Soprano",
@@ -12,11 +12,13 @@
     "Bass",
   ];
 
-  /** @type {{ version: number, auditions: Array, activeAuditionId: string|null }} */
+  /** @type {{ version: number, auditionGroups: Array, auditions: Array, activeAuditionId: string|null, activeGroupId: string|null }} */
   let state = {
     version: STORE_VERSION,
+    auditionGroups: [],
     auditions: [],
     activeAuditionId: null,
+    activeGroupId: null,
   };
 
   /** Roles being edited in the audition dialog (not yet saved). */
@@ -42,6 +44,11 @@
     actionBackup: document.getElementById("action-backup"),
     actionRestore: document.getElementById("action-restore"),
     actionDeleteSession: document.getElementById("action-delete-session"),
+    actionManageGroups: document.getElementById("action-manage-groups"),
+    groupPanel: document.getElementById("group-panel"),
+    groupFilter: document.getElementById("group-filter"),
+    groupMeta: document.getElementById("group-meta"),
+    manageGroupsBtn: document.getElementById("manage-groups-btn"),
     sessionPanel: document.getElementById("session-panel"),
     toolbarPanel: document.getElementById("toolbar-panel"),
     auditionSelect: document.getElementById("audition-select"),
@@ -63,9 +70,14 @@
     auditionName: document.getElementById("audition-name"),
     auditionDate: document.getElementById("audition-date"),
     auditionLocation: document.getElementById("audition-location"),
+    auditionGroup: document.getElementById("audition-group"),
     rolesList: document.getElementById("roles-list"),
     roleAddInput: document.getElementById("role-add-input"),
     roleAddBtn: document.getElementById("role-add-btn"),
+    groupsDialog: document.getElementById("groups-dialog"),
+    groupsList: document.getElementById("groups-list"),
+    groupAddInput: document.getElementById("group-add-input"),
+    groupAddBtn: document.getElementById("group-add-btn"),
     singerDialog: document.getElementById("singer-dialog"),
     singerForm: document.getElementById("singer-form"),
     singerDialogTitle: document.getElementById("singer-dialog-title"),
@@ -134,8 +146,10 @@
         STORAGE_KEY,
         JSON.stringify({
           version: STORE_VERSION,
+          auditionGroups: state.auditionGroups,
           auditions: state.auditions,
           activeAuditionId: state.activeAuditionId,
+          activeGroupId: state.activeGroupId,
         })
       );
     } catch (err) {
@@ -158,22 +172,39 @@
     };
   }
 
+  function normalizeGroups(rawGroups) {
+    if (!Array.isArray(rawGroups)) return [];
+    return rawGroups
+      .filter((g) => g && typeof g === "object")
+      .map((g) => ({
+        id: String(g.id || uid()),
+        name: String(g.name || "Untitled Group").trim() || "Untitled Group",
+        createdAt: String(g.createdAt || new Date().toISOString()),
+      }));
+  }
+
   function normalizeStore(raw) {
     if (!raw || typeof raw !== "object") throw new Error("Backup is not a valid object.");
-    if (raw.version !== 1 && raw.version !== 2) throw new Error("Unsupported backup version.");
+    if (![1, 2, 3].includes(raw.version)) throw new Error("Unsupported backup version.");
     if (!Array.isArray(raw.auditions)) throw new Error("Backup is missing auditions.");
+
+    const auditionGroups = normalizeGroups(raw.auditionGroups);
+    const groupIds = new Set(auditionGroups.map((g) => g.id));
 
     const auditions = raw.auditions.map((a, i) => {
       if (!a || typeof a !== "object") throw new Error(`Invalid audition at index ${i}.`);
       const singers = Array.isArray(a.singers)
         ? a.singers.map((s, j) => normalizeSinger(s, j, i))
         : [];
+      let groupId = a.groupId != null && a.groupId !== "" ? String(a.groupId) : null;
+      if (groupId && !groupIds.has(groupId)) groupId = null;
       return {
         id: String(a.id || uid()),
         name: String(a.name || "Untitled Audition"),
         date: String(a.date || todayISO()),
         location: a.location != null ? String(a.location) : "",
         createdAt: String(a.createdAt || new Date().toISOString()),
+        groupId,
         roles: normalizeRoles(a.roles),
         singers,
       };
@@ -184,21 +215,36 @@
       activeAuditionId = auditions[0]?.id || null;
     }
 
-    return { version: STORE_VERSION, auditions, activeAuditionId };
+    let activeGroupId = raw.activeGroupId != null && raw.activeGroupId !== "" ? String(raw.activeGroupId) : null;
+    if (activeGroupId && !groupIds.has(activeGroupId)) activeGroupId = null;
+
+    return { version: STORE_VERSION, auditionGroups, auditions, activeAuditionId, activeGroupId };
   }
 
   function load() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) {
-        state = { version: STORE_VERSION, auditions: [], activeAuditionId: null };
+        state = {
+          version: STORE_VERSION,
+          auditionGroups: [],
+          auditions: [],
+          activeAuditionId: null,
+          activeGroupId: null,
+        };
         return;
       }
       state = normalizeStore(JSON.parse(raw));
-      if (state.version === STORE_VERSION) persist();
+      persist();
     } catch (err) {
       console.error(err);
-      state = { version: STORE_VERSION, auditions: [], activeAuditionId: null };
+      state = {
+        version: STORE_VERSION,
+        auditionGroups: [],
+        auditions: [],
+        activeAuditionId: null,
+        activeGroupId: null,
+      };
       showToast("Saved data looked invalid — starting fresh.", true);
     }
   }
@@ -207,16 +253,39 @@
     return state.auditions.find((a) => a.id === state.activeAuditionId) || null;
   }
 
+  function getActiveGroup() {
+    if (!state.activeGroupId) return null;
+    return state.auditionGroups.find((g) => g.id === state.activeGroupId) || null;
+  }
+
+  function getScopedAuditions() {
+    if (!state.activeGroupId) return state.auditions;
+    return state.auditions.filter((a) => a.groupId === state.activeGroupId);
+  }
+
   function ensureActiveAudition() {
-    if (!state.auditions.length) {
-      state.activeAuditionId = null;
+    const scoped = getScopedAuditions();
+    if (!scoped.length) {
+      if (!state.activeGroupId) state.activeAuditionId = null;
+      else if (!scoped.some((a) => a.id === state.activeAuditionId)) state.activeAuditionId = null;
       return null;
     }
-    if (!getActiveAudition()) {
-      state.activeAuditionId = state.auditions[0].id;
+    if (!scoped.some((a) => a.id === state.activeAuditionId)) {
+      state.activeAuditionId = scoped[0].id;
       persist();
     }
     return getActiveAudition();
+  }
+
+  function sortedGroups() {
+    return [...state.auditionGroups].sort((a, b) =>
+      String(a.name).localeCompare(String(b.name), undefined, { sensitivity: "base" })
+    );
+  }
+
+  function groupName(groupId) {
+    if (!groupId) return "Ungrouped";
+    return state.auditionGroups.find((g) => g.id === groupId)?.name || "Ungrouped";
   }
 
   function nextAuditionNumber(audition) {
@@ -333,9 +402,10 @@
     const query = ui.search.trim().toLowerCase();
     /** @type {Array<{singer: any, audition: any}>} */
     let rows = [];
+    const scoped = getScopedAuditions();
 
     if (ui.view === "all") {
-      for (const audition of state.auditions) {
+      for (const audition of scoped) {
         for (const singer of audition.singers) {
           rows.push({ singer, audition });
         }
@@ -410,15 +480,144 @@
     el.roleAddInput.focus();
   }
 
+  function fillAuditionGroupSelect(selectedGroupId) {
+    const options = [`<option value="">Ungrouped</option>`];
+    for (const group of sortedGroups()) {
+      options.push(`<option value="${escapeHtml(group.id)}">${escapeHtml(group.name)}</option>`);
+    }
+    el.auditionGroup.innerHTML = options.join("");
+    el.auditionGroup.value = selectedGroupId || "";
+  }
+
+  function renderGroupFilter() {
+    const groups = sortedGroups();
+    el.groupFilter.innerHTML =
+      `<option value="">All groups</option>` +
+      groups.map((g) => `<option value="${escapeHtml(g.id)}">${escapeHtml(g.name)}</option>`).join("");
+    el.groupFilter.value = state.activeGroupId || "";
+    el.groupFilter.disabled = false;
+
+    const scoped = getScopedAuditions();
+    const activeGroup = getActiveGroup();
+    if (activeGroup) {
+      el.groupMeta.innerHTML = `
+        <span><strong>${escapeHtml(activeGroup.name)}</strong></span>
+        <span>${scoped.length} audition${scoped.length === 1 ? "" : "s"} in this group</span>
+        <span>Search and lists are limited to this group</span>`;
+    } else {
+      el.groupMeta.innerHTML = `
+        <span><strong>All groups</strong></span>
+        <span>${state.auditions.length} audition${state.auditions.length === 1 ? "" : "s"} total</span>
+        <span>${groups.length} group${groups.length === 1 ? "" : "s"}</span>`;
+    }
+  }
+
+  function renderGroupsManager() {
+    const groups = sortedGroups();
+    if (!groups.length) {
+      el.groupsList.innerHTML = `<div class="roles-empty">No groups yet. Add one for a casting cycle (e.g. Fall 2026 — Spring Operas).</div>`;
+      return;
+    }
+    el.groupsList.innerHTML = groups
+      .map((group) => {
+        const count = state.auditions.filter((a) => a.groupId === group.id).length;
+        return `
+        <div class="role-row" data-group-id="${escapeHtml(group.id)}">
+          <span class="role-name">${escapeHtml(group.name)} <span class="group-count">(${count})</span></span>
+          <div class="role-actions">
+            <button type="button" class="btn btn-ghost" data-group-action="rename">Rename</button>
+            <button type="button" class="btn btn-ghost btn-icon" data-group-action="remove" aria-label="Delete">×</button>
+          </div>
+        </div>`;
+      })
+      .join("");
+  }
+
+  function openGroupsDialog() {
+    el.groupAddInput.value = "";
+    renderGroupsManager();
+    openDialog(el.groupsDialog);
+  }
+
+  function addGroup() {
+    const name = el.groupAddInput.value.trim();
+    if (!name) return;
+    if (state.auditionGroups.some((g) => g.name.toLowerCase() === name.toLowerCase())) {
+      showToast("That group name already exists.", true);
+      return;
+    }
+    state.auditionGroups.push({
+      id: uid(),
+      name,
+      createdAt: new Date().toISOString(),
+    });
+    el.groupAddInput.value = "";
+    persist();
+    renderGroupsManager();
+    render();
+    showToast("Group added.");
+    el.groupAddInput.focus();
+  }
+
+  async function renameGroup(groupId) {
+    const group = state.auditionGroups.find((g) => g.id === groupId);
+    if (!group) return;
+    const next = window.prompt("Rename audition group:", group.name);
+    if (next == null) return;
+    const name = next.trim();
+    if (!name) {
+      showToast("Group name cannot be empty.", true);
+      return;
+    }
+    if (
+      state.auditionGroups.some(
+        (g) => g.id !== groupId && g.name.toLowerCase() === name.toLowerCase()
+      )
+    ) {
+      showToast("That group name already exists.", true);
+      return;
+    }
+    group.name = name;
+    persist();
+    renderGroupsManager();
+    render();
+    showToast("Group renamed.");
+  }
+
+  async function deleteGroup(groupId) {
+    const group = state.auditionGroups.find((g) => g.id === groupId);
+    if (!group) return;
+    const count = state.auditions.filter((a) => a.groupId === groupId).length;
+    const ok = await confirmDialog(
+      "Delete group?",
+      count
+        ? `Delete “${group.name}”? ${count} audition${count === 1 ? "" : "s"} will become Ungrouped.`
+        : `Delete “${group.name}”?`,
+      "Delete"
+    );
+    if (!ok) return;
+    state.auditionGroups = state.auditionGroups.filter((g) => g.id !== groupId);
+    for (const audition of state.auditions) {
+      if (audition.groupId === groupId) audition.groupId = null;
+    }
+    if (state.activeGroupId === groupId) state.activeGroupId = null;
+    persist();
+    renderGroupsManager();
+    render();
+    showToast("Group deleted.");
+  }
+
   function renderSessionSelect() {
-    const auditions = [...state.auditions].sort(
+    const auditions = [...getScopedAuditions()].sort(
       (a, b) => String(b.date).localeCompare(String(a.date)) || String(a.name).localeCompare(String(b.name))
     );
     if (!auditions.length) {
-      el.auditionSelect.innerHTML = `<option value="">No auditions yet</option>`;
+      el.auditionSelect.innerHTML = `<option value="">${state.activeGroupId ? "No auditions in this group" : "No auditions yet"}</option>`;
       el.auditionSelect.disabled = true;
       el.editAuditionBtn.disabled = true;
-      el.sessionMeta.innerHTML = `<span>Create an audition to start logging singers.</span>`;
+      el.sessionMeta.innerHTML = state.activeGroupId
+        ? `<span>No auditions in this group yet. Create one or switch groups.</span>`
+        : `<span>Create an audition to start logging singers.</span>`;
       return;
     }
 
@@ -438,6 +637,7 @@
         <span><strong>${escapeHtml(active.name)}</strong></span>
         <span>${escapeHtml(formatDate(active.date))}</span>
         <span>${escapeHtml(active.location || "No location")}</span>
+        <span>${escapeHtml(groupName(active.groupId))}</span>
         <span>${active.singers.length} singer${active.singers.length === 1 ? "" : "s"}</span>
         <span>${roleCount} role${roleCount === 1 ? "" : "s"}</span>
       `;
@@ -500,12 +700,19 @@
     }
 
     const rows = getVisibleRows();
+    const scoped = getScopedAuditions();
     const totalInView =
       ui.view === "all"
-        ? state.auditions.reduce((n, a) => n + a.singers.length, 0)
+        ? scoped.reduce((n, a) => n + a.singers.length, 0)
         : getActiveAudition()?.singers.length || 0;
 
-    el.listTitle.textContent = ui.view === "all" ? "All singers" : "Singers";
+    const groupLabel = getActiveGroup()?.name;
+    el.listTitle.textContent =
+      ui.view === "all"
+        ? groupLabel
+          ? `All singers · ${groupLabel}`
+          : "All singers"
+        : "Singers";
     el.listCount.textContent =
       rows.length === totalInView
         ? `${rows.length} shown`
@@ -516,6 +723,15 @@
         <div class="empty">
           <strong>No auditions yet</strong>
           Create your first audition session to begin tracking singers.
+        </div>`;
+      return;
+    }
+
+    if (!scoped.length && state.activeGroupId) {
+      el.singerList.innerHTML = `
+        <div class="empty">
+          <strong>No auditions in this group</strong>
+          Create an audition in this group, or choose All groups.
         </div>`;
       return;
     }
@@ -631,6 +847,7 @@
     el.addSingerBtn.classList.toggle("hidden", ui.view === "byRole");
     el.actionDeleteSession.classList.toggle("hidden", ui.view === "all" || !getActiveAudition());
 
+    renderGroupFilter();
     renderSessionSelect();
     renderList();
   }
@@ -641,6 +858,7 @@
     el.auditionName.value = audition?.name || "";
     el.auditionDate.value = audition?.date || todayISO();
     el.auditionLocation.value = audition?.location || "";
+    fillAuditionGroupSelect(audition?.groupId || state.activeGroupId || "");
     draftRoles = audition ? [...(audition.roles || [])] : [];
     el.roleAddInput.value = "";
     renderRolesEditor();
@@ -716,8 +934,10 @@
   function backupToFile() {
     const payload = {
       version: STORE_VERSION,
+      auditionGroups: state.auditionGroups,
       auditions: state.auditions,
       activeAuditionId: state.activeAuditionId,
+      activeGroupId: state.activeGroupId,
       exportedAt: new Date().toISOString(),
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
@@ -761,6 +981,7 @@
     if (!state.activeAuditionId && state.auditions.length) {
       state.activeAuditionId = state.auditions[0].id;
     }
+    ensureActiveAudition();
     persist();
     render();
     showToast("Backup restored.");
@@ -769,12 +990,17 @@
   function exportExcel() {
     try {
       if (ui.view === "all") {
-        if (!state.auditions.length) {
+        const scoped = getScopedAuditions();
+        if (!scoped.length) {
           showToast("Nothing to export yet.", true);
           return;
         }
-        window.AuditionExport.exportAllAuditionsToExcel(state.auditions);
-        showToast("Excel workbook downloaded.");
+        window.AuditionExport.exportAllAuditionsToExcel(scoped);
+        showToast(
+          state.activeGroupId
+            ? "Excel workbook downloaded for this group."
+            : "Excel workbook downloaded."
+        );
         return;
       }
       const active = getActiveAudition();
@@ -888,6 +1114,35 @@
       closeMenu();
       deleteActiveAudition();
     });
+    el.actionManageGroups.addEventListener("click", () => {
+      closeMenu();
+      openGroupsDialog();
+    });
+    el.manageGroupsBtn.addEventListener("click", () => openGroupsDialog());
+
+    el.groupFilter.addEventListener("change", () => {
+      state.activeGroupId = el.groupFilter.value || null;
+      ensureActiveAudition();
+      persist();
+      render();
+    });
+
+    el.groupAddBtn.addEventListener("click", () => addGroup());
+    el.groupAddInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        addGroup();
+      }
+    });
+    el.groupsList.addEventListener("click", async (e) => {
+      const btn = e.target.closest("[data-group-action]");
+      if (!btn) return;
+      const row = btn.closest("[data-group-id]");
+      if (!row) return;
+      const groupId = row.dataset.groupId;
+      if (btn.dataset.groupAction === "rename") await renameGroup(groupId);
+      if (btn.dataset.groupAction === "remove") await deleteGroup(groupId);
+    });
 
     el.restoreInput.addEventListener("change", async () => {
       const file = el.restoreInput.files?.[0];
@@ -973,6 +1228,7 @@
       const name = el.auditionName.value.trim();
       const date = el.auditionDate.value;
       const location = el.auditionLocation.value.trim();
+      const groupId = el.auditionGroup.value || null;
       if (!name || !date) return;
 
       if (ui.editingAuditionId) {
@@ -981,6 +1237,7 @@
           audition.name = name;
           audition.date = date;
           audition.location = location;
+          audition.groupId = groupId;
           applyRolesToAudition(audition, draftRoles);
         }
       } else {
@@ -990,11 +1247,13 @@
           date,
           location,
           createdAt: new Date().toISOString(),
+          groupId,
           roles: normalizeRoles(draftRoles),
           singers: [],
         };
         state.auditions.push(audition);
         state.activeAuditionId = audition.id;
+        if (groupId) state.activeGroupId = groupId;
         ui.view = "session";
       }
       persist();
@@ -1092,7 +1351,7 @@
     document.addEventListener("keydown", (e) => {
       if (e.key !== "Escape") return;
       closeMenu();
-      [el.auditionDialog, el.singerDialog, el.confirmDialog].forEach((d) => {
+      [el.auditionDialog, el.singerDialog, el.groupsDialog, el.confirmDialog].forEach((d) => {
         if (d.classList.contains("open")) {
           if (d === el.confirmDialog && ui.confirmResolver) {
             ui.confirmResolver(false);
